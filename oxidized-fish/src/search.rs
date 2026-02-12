@@ -62,6 +62,22 @@ impl Search {
             *entry = None;
         }
         self.game_ply = 0;
+        self.clear_history();
+        self.clear_killers();
+    }
+
+    pub fn clear_history(&mut self) {
+        for i in 0..64 {
+            for j in 0..64 {
+                self.history[i][j] = 0;
+            }
+        }
+    }
+
+    pub fn clear_killers(&mut self) {
+        for i in 0..MAX_PLY {
+            self.killers[i] = [None; 2];
+        }
     }
 
     fn should_stop(&self) -> bool {
@@ -190,18 +206,16 @@ impl Search {
         let tt_move = self.probe_tt(board.hash).and_then(|e| e.m);
         self.order_moves(board, &mut moves, 0, tt_move);
 
-        if moves.is_empty() {
-            if board.is_in_check() {
-                return (best_move, -MATE_VALUE + 1);
-            } else {
-                return (best_move, 0);
-            }
-        }
-
+        let mut legal_moves_found = 0;
         for (i, m) in moves.iter().enumerate() {
             if self.should_stop() {
                 break;
             }
+
+            if !board.is_legal(*m) {
+                continue;
+            }
+            legal_moves_found += 1;
 
             let next_board = board.make_move(*m);
             let score = if i == 0 {
@@ -228,7 +242,15 @@ impl Search {
             }
         }
 
-        if !self.should_stop() {
+        if !self.should_stop() && legal_moves_found == 0 {
+            if board.is_in_check() {
+                return (best_move, -MATE_VALUE + 1);
+            } else {
+                return (best_move, 0);
+            }
+        }
+
+        if !self.should_stop() && legal_moves_found > 0 {
             self.store_tt(
                 board.hash,
                 Some(best_move),
@@ -298,6 +320,10 @@ impl Search {
             }
         }
 
+        // Futility Pruning
+        let futility_margin = [0, 150, 300, 450];
+        let can_futility = !in_check && depth <= 3 && eval + futility_margin[depth as usize] <= alpha;
+
         // Null Move Pruning
         if allow_null && !in_check && depth >= 3 && ply > 0 && eval >= beta {
             let mut null_board = *board;
@@ -327,33 +353,36 @@ impl Search {
         }
 
         let mut moves = MoveGen::generate(board);
-        if moves.is_empty() {
-            return if in_check {
-                -MATE_VALUE + ply as i32
-            } else {
-                0
-            };
-        }
-
         self.order_moves(board, &mut moves, ply, tt_move);
 
         let mut best_score = -INFINITY;
         let mut best_move = None;
         let mut moves_searched = 0;
+        let mut legal_moves_found = 0;
 
         for m in moves {
             if self.nodes % 2048 == 0 && self.should_stop() {
                 break;
             }
 
-            // SEE Pruning
-            if depth <= 4 && !in_check && moves_searched > 0 && m.is_capture() {
-                if board.see_value(m) < 0 {
-                    continue;
-                }
+            if !board.is_legal(m) {
+                continue;
+            }
+            legal_moves_found += 1;
+
+            // Futility Pruning
+            if can_futility && moves_searched > 0 && !m.is_capture() && !m.is_promotion() {
+                continue;
             }
 
             let next_board = board.make_move(m);
+            // SEE Pruning
+            if depth <= 4 && !in_check && moves_searched > 0 && m.is_capture() {
+                if board.see_value(m) < 0 {
+                    moves_searched += 1;
+                    continue;
+                }
+            }
 
             let mut score;
             if moves_searched == 0 {
@@ -402,6 +431,14 @@ impl Search {
             }
         }
 
+        if !self.should_stop() && legal_moves_found == 0 {
+            return if in_check {
+                -MATE_VALUE + ply as i32
+            } else {
+                0
+            };
+        }
+
         if !self.should_stop() {
             let flag = if best_score <= alpha {
                 TTFlag::UpperBound
@@ -435,21 +472,20 @@ impl Search {
         if stand_pat > alpha { alpha = stand_pat; }
 
         let in_check = board.is_in_check();
-        let mut moves = if in_check {
-            MoveGen::generate(board)
-        } else {
-            let mut ms = MoveGen::generate(board);
-            ms.retain(|m| m.is_capture() || m.is_promotion());
-            ms
-        };
-
-        if moves.is_empty() {
-            return if in_check { -MATE_VALUE + ply as i32 } else { stand_pat };
+        let mut moves = MoveGen::generate(board);
+        if !in_check {
+            moves.retain(|m| m.is_capture() || m.is_promotion());
         }
 
         self.order_moves(board, &mut moves, ply, None);
 
+        let mut legal_moves_found = 0;
         for m in moves {
+            if !board.is_legal(m) {
+                continue;
+            }
+            legal_moves_found += 1;
+
             if !in_check && board.see_value(m) < 0 { continue; }
             
             let next_board = board.make_move(m);
@@ -458,6 +494,11 @@ impl Search {
             if score >= beta { return beta; }
             if score > alpha { alpha = score; }
         }
+
+        if in_check && legal_moves_found == 0 {
+            return -MATE_VALUE + ply as i32;
+        }
+
         alpha
     }
 

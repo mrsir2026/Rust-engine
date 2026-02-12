@@ -312,47 +312,11 @@ impl Board {
     }
 
     pub fn get_rook_attacks(&self, sq: u8, occ: u64) -> u64 {
-        let mut attacks = 0u64;
-        let f = (sq % 8) as i16;
-        let r = (sq / 8) as i16;
-        let directions = [(0, 1), (0, -1), (1, 0), (-1, 0)];
-        
-        for &(df, dr) in &directions {
-            let mut nf = f + df;
-            let mut nr = r + dr;
-            while nf >= 0 && nf < 8 && nr >= 0 && nr < 8 {
-                let to = (nr * 8 + nf) as u8;
-                attacks |= 1u64 << to;
-                if (occ & (1u64 << to)) != 0 {
-                    break;
-                }
-                nf += df;
-                nr += dr;
-            }
-        }
-        attacks
+        crate::tables::generate_slider_attacks(sq as usize, occ, true)
     }
 
     pub fn get_bishop_attacks(&self, sq: u8, occ: u64) -> u64 {
-        let mut attacks = 0u64;
-        let f = (sq % 8) as i16;
-        let r = (sq / 8) as i16;
-        let directions = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
-        
-        for &(df, dr) in &directions {
-            let mut nf = f + df;
-            let mut nr = r + dr;
-            while nf >= 0 && nf < 8 && nr >= 0 && nr < 8 {
-                let to = (nr * 8 + nf) as u8;
-                attacks |= 1u64 << to;
-                if (occ & (1u64 << to)) != 0 {
-                    break;
-                }
-                nf += df;
-                nr += dr;
-            }
-        }
-        attacks
+        crate::tables::generate_slider_attacks(sq as usize, occ, false)
     }
 
     pub fn get_attackers(&self, sq: u8, occ: u64) -> u64 {
@@ -447,5 +411,13 @@ impl Board {
             return true;
         }
         self.is_square_attacked(king_sq, self.side_to_move.opponent())
+    }
+
+    pub fn is_legal(&self, m: Move) -> bool {
+        let next_board = self.make_move(m);
+        let us = self.side_to_move;
+        let king_sq = (next_board.by_type[PieceType::King as usize] & next_board.by_color[us as usize]).trailing_zeros() as u8;
+        if king_sq == 64 { return false; }
+        !next_board.is_square_attacked(king_sq, us.opponent())
     }
 }

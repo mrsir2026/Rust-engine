@@ -59,16 +59,6 @@ impl MoveGen {
             }
         }
 
-        // Legal move filtering
-        moves.retain(|m| {
-            let next_board = board.make_move(*m);
-            let us_idx = us as usize;
-            let next_king_sq = (next_board.by_type[PieceType::King as usize]
-                & next_board.by_color[us_idx])
-                .trailing_zeros() as u8;
-            if next_king_sq == 64 { return false; }
-            !next_board.is_square_attacked(next_king_sq, next_board.side_to_move)
-        });
         moves
     }
 

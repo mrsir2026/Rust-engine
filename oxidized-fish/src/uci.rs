@@ -185,7 +185,9 @@ fn parse_move(board: &Board, m_str: &str) -> Option<Move> {
     let legal_moves = crate::movegen::MoveGen::generate(board);
     for m in legal_moves {
         if m.to_string() == m_str {
-            return Some(m);
+            if board.is_legal(m) {
+                return Some(m);
+            }
         }
     }
     None

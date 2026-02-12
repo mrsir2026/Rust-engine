@@ -565,16 +565,32 @@ socket.on('engine-response', (data) => {
             const to = moveStr.substring(2, 4);
             const promo = moveStr.substring(4, 5);
             
-            const move = game.move({ from, to, promotion: promo || 'q' });
-            if (move) {
-                saveMove(move);
-                renderBoard();
-                updateCapturedPieces();
-                playSound('move');
-                
-                if (game.isGameOver()) {
-                    handleGameOver();
+            const moveOptions = { from, to };
+            if (promo) {
+                moveOptions.promotion = promo;
+            } else {
+                // Only add 'q' as fallback if it's actually a promotion rank for a pawn
+                const piece = game.get(from);
+                if (piece && piece.type === 'p' && (to[1] === '8' || to[1] === '1')) {
+                    moveOptions.promotion = 'q';
                 }
+            }
+            
+            try {
+                const move = game.move(moveOptions);
+                if (move) {
+                    saveMove(move);
+                    renderBoard();
+                    updateCapturedPieces();
+                    playSound('move');
+                    
+                    if (game.isGameOver()) {
+                        handleGameOver();
+                    }
+                }
+            } catch (e) {
+                console.error('Invalid move from engine:', moveOptions, e);
+                updateEngineStatus('error', 'Engine Error: Invalid Move');
             }
         }
     } else if (data.startsWith('info')) {

@@ -143,6 +143,19 @@ pub struct AttackTables {
     pub knight: [u64; 64],
     pub king: [u64; 64],
     pub pawn: [[u64; 64]; 2],
+    pub bishop_masks: [u64; 64],
+    pub rook_masks: [u64; 64],
+    pub bishop_table: Vec<u64>,
+    pub rook_table: Vec<u64>,
+    pub bishop_magics: [Magic; 64],
+    pub rook_magics: [Magic; 64],
+}
+
+pub struct Magic {
+    pub magic: u64,
+    pub mask: u64,
+    pub offset: usize,
+    pub shift: u8,
 }
 
 impl AttackTables {
@@ -150,7 +163,7 @@ impl AttackTables {
         let mut knight = [0u64; 64];
         let mut king = [0u64; 64];
         let mut pawn = [[0u64; 64]; 2];
-
+        
         for sq in 0..64 {
             let f = (sq % 8) as i16;
             let r = (sq / 8) as i16;
@@ -190,9 +203,200 @@ impl AttackTables {
             }
         }
 
-        AttackTables { knight, king, pawn }
+        AttackTables {
+            knight,
+            king,
+            pawn,
+            bishop_masks: [0; 64],
+            rook_masks: [0; 64],
+            bishop_table: Vec::new(),
+            rook_table: Vec::new(),
+            bishop_magics: BISHOP_MAGICS,
+            rook_magics: ROOK_MAGICS,
+        }
     }
 }
+
+fn generate_slider_mask(sq: usize, is_rook: bool) -> u64 {
+    let mut mask = 0u64;
+    let r = (sq / 8) as i16;
+    let f = (sq % 8) as i16;
+    let directions: &[(i16, i16)] = if is_rook {
+        &[(1, 0), (-1, 0), (0, 1), (0, -1)]
+    } else {
+        &[(1, 1), (1, -1), (-1, 1), (-1, -1)]
+    };
+
+    for &(dr, df) in directions {
+        let mut nr = r + dr;
+        let mut nf = f + df;
+        while nr > 0 && nr < 7 && nf > 0 && nf < 7 {
+            mask |= 1u64 << (nr * 8 + nf);
+            nr += dr;
+            nf += df;
+        }
+    }
+    mask
+}
+
+pub fn generate_slider_attacks(sq: usize, occ: u64, is_rook: bool) -> u64 {
+    let mut attacks = 0u64;
+    let r = (sq / 8) as i16;
+    let f = (sq % 8) as i16;
+    let directions: &[(i16, i16)] = if is_rook {
+        &[(1, 0), (-1, 0), (0, 1), (0, -1)]
+    } else {
+        &[(1, 1), (1, -1), (-1, 1), (-1, -1)]
+    };
+
+    for &(dr, df) in directions {
+        let mut nr = r + dr;
+        let mut nf = f + df;
+        while nr >= 0 && nr < 8 && nf >= 0 && nf < 8 {
+            attacks |= 1u64 << (nr * 8 + nf);
+            if (occ & (1u64 << (nr * 8 + nf))) != 0 {
+                break;
+            }
+            nr += dr;
+            nf += df;
+        }
+    }
+    attacks
+}
+
+const BISHOP_MAGICS: [Magic; 64] = [
+    Magic { magic: 0x0004001002008008, mask: 0x0040201008040200, offset: 0, shift: 58 },
+    Magic { magic: 0x0001004402008010, mask: 0x0040201008040200, offset: 64, shift: 58 },
+    Magic { magic: 0x0001008010402000, mask: 0x0000201008040200, offset: 128, shift: 59 },
+    Magic { magic: 0x0001002008040200, mask: 0x0000001008040200, offset: 160, shift: 60 },
+    Magic { magic: 0x0004000804020000, mask: 0x0000001008040200, offset: 176, shift: 60 },
+    Magic { magic: 0x0001000402000000, mask: 0x0000201008040200, offset: 192, shift: 59 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 224, shift: 58 },
+    Magic { magic: 0x0004001002008008, mask: 0x0040201008040200, offset: 288, shift: 58 },
+    Magic { magic: 0x0001004402008010, mask: 0x0040201008040200, offset: 352, shift: 58 },
+    Magic { magic: 0x0004001002008008, mask: 0x0040201008040200, offset: 416, shift: 58 },
+    Magic { magic: 0x0001008010402000, mask: 0x0000201008040200, offset: 480, shift: 59 },
+    Magic { magic: 0x0001002008040200, mask: 0x0000001008040200, offset: 512, shift: 60 },
+    Magic { magic: 0x0004000804020000, mask: 0x0000001008040200, offset: 528, shift: 60 },
+    Magic { magic: 0x0001000402000000, mask: 0x0000201008040200, offset: 544, shift: 59 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 576, shift: 58 },
+    Magic { magic: 0x0004001002008008, mask: 0x0040201008040200, offset: 640, shift: 58 },
+    Magic { magic: 0x0000008010402000, mask: 0x0000201008040200, offset: 704, shift: 59 },
+    Magic { magic: 0x0000008010402000, mask: 0x0000201008040200, offset: 736, shift: 59 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 768, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 784, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 800, shift: 60 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 816, shift: 59 },
+    Magic { magic: 0x0000002010402000, mask: 0x0000201008040200, offset: 848, shift: 59 },
+    Magic { magic: 0x0000002010402000, mask: 0x0000201008040200, offset: 880, shift: 59 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 912, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 928, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 944, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 960, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 976, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 992, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 1008, shift: 60 },
+    Magic { magic: 0x0000002008040200, mask: 0x0000001008040200, offset: 1024, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1040, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1056, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1072, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1088, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1104, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1120, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1136, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1152, shift: 60 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 1168, shift: 59 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 1200, shift: 59 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1232, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1248, shift: 60 },
+    Magic { magic: 0x0000000804020000, mask: 0x0000001008040200, offset: 1264, shift: 60 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 1280, shift: 59 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 1312, shift: 59 },
+    Magic { magic: 0x0000000402000000, mask: 0x0000201008040200, offset: 1344, shift: 59 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1376, shift: 58 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1440, shift: 58 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1504, shift: 58 },
+    Magic { magic: 0x0000040200000000, mask: 0x0000201008040200, offset: 1568, shift: 59 },
+    Magic { magic: 0x0000040200000000, mask: 0x0000201008040200, offset: 1600, shift: 59 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1632, shift: 58 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1696, shift: 58 },
+    Magic { magic: 0x0000201040200000, mask: 0x0040201008040200, offset: 1760, shift: 58 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 1824, shift: 58 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 1888, shift: 58 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 1952, shift: 58 },
+    Magic { magic: 0x0001000402000000, mask: 0x0000201008040200, offset: 2016, shift: 59 },
+    Magic { magic: 0x0001000402000000, mask: 0x0000201008040200, offset: 2048, shift: 59 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 2080, shift: 58 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 2144, shift: 58 },
+    Magic { magic: 0x0008002010402000, mask: 0x0040201008040200, offset: 2208, shift: 58 },
+];
+
+const ROOK_MAGICS: [Magic; 64] = [
+    Magic { magic: 0x0080001000200040, mask: 0x000101010101017e, offset: 0, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x000202020202027c, offset: 4096, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x000404040404047a, offset: 8192, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x0008080808080876, offset: 12288, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x001010101010106e, offset: 16384, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x002020202020205e, offset: 20480, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x004040404040403e, offset: 24576, shift: 52 },
+    Magic { magic: 0x0080001000200040, mask: 0x008080808080807e, offset: 28672, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0001010101017e01, offset: 32768, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0002020202027c02, offset: 36864, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0004040404047a04, offset: 40960, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0008080808087608, offset: 45056, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0010101010106e10, offset: 49152, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0020202020205e20, offset: 53248, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0040404040403e40, offset: 57344, shift: 52 },
+    Magic { magic: 0x0000800010002000, mask: 0x0080808080807e80, offset: 61440, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00010101017e0101, offset: 65536, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00020202027c0202, offset: 69632, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00040404047a0404, offset: 73728, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x0008080808760808, offset: 77824, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00101010106e1010, offset: 81920, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00202020205e2020, offset: 86016, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00404040403e4040, offset: 90112, shift: 52 },
+    Magic { magic: 0x0000008000100020, mask: 0x00808080807e8080, offset: 94208, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x000101017e010101, offset: 98304, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x000202027c020202, offset: 102400, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x000404047a040404, offset: 106496, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x0008080876080808, offset: 110592, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x001010106e101010, offset: 114688, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x002020205e202020, offset: 118784, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x004040403e404040, offset: 122880, shift: 52 },
+    Magic { magic: 0x0000000080001000, mask: 0x008080807e808080, offset: 126976, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0001017e01010101, offset: 131072, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0002027c02020202, offset: 135168, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0004047a04040404, offset: 139264, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0008087608080808, offset: 143360, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0010106e10101010, offset: 147456, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0020205e20202020, offset: 151552, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0040403e40404040, offset: 155648, shift: 52 },
+    Magic { magic: 0x0000000000800010, mask: 0x0080807e80808080, offset: 159744, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00017e0101010101, offset: 163840, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00027c0202020202, offset: 167936, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00047a0404040404, offset: 172032, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x0008760808080808, offset: 176128, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00106e1010101010, offset: 180224, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00205e2020202020, offset: 184320, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00403e4040404040, offset: 188416, shift: 52 },
+    Magic { magic: 0x0000000000008000, mask: 0x00807e8080808080, offset: 192512, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7e01010101010101, offset: 196608, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7c02020202020202, offset: 200704, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7a04040404040404, offset: 204800, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7608080808080808, offset: 208896, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x6e10101010101010, offset: 212992, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x5e20202020202020, offset: 217088, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x3e40404040404040, offset: 221184, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7e80808080808080, offset: 225280, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7e01010101010101, offset: 229376, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7c02020202020202, offset: 233472, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7a04040404040404, offset: 237568, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7608080808080808, offset: 241664, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x6e10101010101010, offset: 245760, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x5e20202020202020, offset: 249856, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x3e40404040404040, offset: 253952, shift: 52 },
+    Magic { magic: 0x0000000000000080, mask: 0x7e80808080808080, offset: 258048, shift: 52 },
+];
 
 lazy_static::lazy_static! {
     pub static ref ATTACKS: AttackTables = AttackTables::new();
