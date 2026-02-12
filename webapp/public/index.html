@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oxidized Chess</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-classic">
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="fas fa-chess-knight"></i>
+                    <h1>Oxidized Chess</h1>
+                </div>
+                <nav class="header-nav">
+                    <button class="nav-btn active" data-tab="play">
+                        <i class="fas fa-play"></i> Play
+                    </button>
+                    <button class="nav-btn" data-tab="analysis">
+                        <i class="fas fa-chart-line"></i> Analysis
+                    </button>
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="engine-status-badge" id="engine-badge">
+                    <span class="status-dot inactive"></span>
+                    <span class="status-text">Engine: Disconnected</span>
+                </div>
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <div class="game-layout">
+                <!-- Left Panel: Player Info & Captured Pieces -->
+                <aside class="panel player-panel">
+                    <div class="player-card opponent">
+                        <div class="player-info">
+                            <div class="player-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="player-details">
+                                <span class="player-name" id="opponent-name">Oxidized Fish</span>
+                                <span class="player-rating">Engine</span>
+                            </div>
+                        </div>
+                        <div class="timer" id="opponent-timer">--:--</div>
+                    </div>
+                    
+                    <div class="captured-pieces" id="captured-by-white"></div>
+                </aside>
+
+                <!-- Center: Chess Board -->
+                <section class="board-section">
+                    <div class="board-wrapper">
+                        <div class="board-coordinates files">
+                            <span>a</span><span>b</span><span>c</span><span>d</span>
+                            <span>e</span><span>f</span><span>g</span><span>h</span>
+                        </div>
+                        <div class="board-container">
+                            <div class="board-coordinates ranks">
+                                <span>8</span><span>7</span><span>6</span><span>5</span>
+                                <span>4</span><span>3</span><span>2</span><span>1</span>
+                            </div>
+                            <div id="chess-board" class="board"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="game-info-bar">
+                        <div class="game-status" id="status">
+                            <span class="status-icon"><i class="fas fa-circle"></i></span>
+                            <span class="status-text">White to move</span>
+                        </div>
+                        <div class="game-actions">
+                            <button id="flip-board-btn" class="icon-btn" title="Flip Board">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                            <button id="undo-btn" class="icon-btn" title="Undo Move">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Right Panel: Controls & History -->
+                <aside class="panel controls-panel">
+                    <!-- Game Controls -->
+                    <div class="card game-controls">
+                        <div class="card-header">
+                            <h3><i class="fas fa-sliders-h"></i> Game Settings</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="game-control-btns">
+                                <button id="new-game-btn" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> New Game
+                                </button>
+                                <button id="undo-btn-sidebar" class="btn btn-secondary">
+                                    <i class="fas fa-undo"></i> Undo
+                                </button>
+                            </div>
+                            
+                            <div class="control-group">
+                                <label>Your Side</label>
+                                <div class="segmented-control">
+                                    <input type="radio" name="side" id="side-white" value="white" checked>
+                                    <label for="side-white">
+                                        <i class="fas fa-circle"></i> White
+                                    </label>
+                                    <input type="radio" name="side" id="side-black" value="black">
+                                    <label for="side-black">
+                                        <i class="fas fa-circle"></i> Black
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="control-group">
+                                <label>Opponent</label>
+                                <div class="segmented-control">
+                                    <input type="radio" name="opponent" id="opp-engine" value="engine" checked>
+                                    <label for="opp-engine">
+                                        <i class="fas fa-robot"></i> Engine
+                                    </label>
+                                    <input type="radio" name="opponent" id="opp-human" value="human">
+                                    <label for="opp-human">
+                                        <i class="fas fa-user"></i> Human
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="control-group">
+                                <label>Time Control</label>
+                                <select id="time-control" class="form-select">
+                                    <option value="unlimited">Unlimited</option>
+                                    <option value="3+0">3 min (Blitz)</option>
+                                    <option value="5+0">5 min (Blitz)</option>
+                                    <option value="10+0">10 min (Rapid)</option>
+                                    <option value="15+10">15+10 (Rapid)</option>
+                                    <option value="30+0">30 min (Classical)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Game Sync -->
+                    <div class="card sync-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-sync"></i> Game Sync</h3>
+                            <button id="toggle-edit-mode" class="btn btn-secondary btn-sm" title="Enable Board Editor">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="edit-tools" class="edit-tools hidden">
+                                <div class="piece-pallet">
+                                    <div class="pallet-group white">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/wP.png" data-piece="wp" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/wN.png" data-piece="wn" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/wB.png" data-piece="wb" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/wR.png" data-piece="wr" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/wQ.png" data-piece="wq" class="pallet-piece">
+                                    </div>
+                                    <div class="pallet-group black">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/bP.png" data-piece="bp" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/bN.png" data-piece="bn" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/bB.png" data-piece="bb" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/bR.png" data-piece="br" class="pallet-piece">
+                                        <img src="https://chessboardjs.com/img/chesspieces/wikipedia/bQ.png" data-piece="bq" class="pallet-piece">
+                                    </div>
+                                </div>
+                                <div class="edit-actions">
+                                    <button id="toggle-turn-btn" class="btn btn-secondary btn-block">
+                                        <i class="fas fa-retweet"></i> Toggle Turn
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="control-group">
+                                <label>Manual Move (SAN)</label>
+                                <div class="input-group">
+                                    <input type="text" id="manual-move-input" placeholder="e.g. e4, Nf3, O-O" class="form-input">
+                                    <button id="force-move-btn" class="btn btn-secondary">Play</button>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>Board FEN</label>
+                                <div class="input-group">
+                                    <input type="text" id="fen-input" placeholder="Paste FEN here..." class="form-input">
+                                    <button id="load-fen-btn" class="btn btn-secondary">Load</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Move History -->
+                    <div class="card move-history-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-history"></i> Move History</h3>
+                            <div class="move-nav">
+                                <button id="move-first" class="icon-btn-sm" title="First Move">
+                                    <i class="fas fa-angle-double-left"></i>
+                                </button>
+                                <button id="move-prev" class="icon-btn-sm" title="Previous Move">
+                                    <i class="fas fa-angle-left"></i>
+                                </button>
+                                <button id="move-next" class="icon-btn-sm" title="Next Move">
+                                    <i class="fas fa-angle-right"></i>
+                                </button>
+                                <button id="move-last" class="icon-btn-sm" title="Last Move">
+                                    <i class="fas fa-angle-double-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="move-list" class="move-list">
+                                <div class="move-placeholder">No moves yet. Start a game!</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Engine Info -->
+                    <div class="card engine-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-microchip"></i> Engine Analysis</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="eval-bar-container">
+                                <div class="eval-bar" id="eval-bar">
+                                    <div class="eval-fill" id="eval-fill" style="height: 50%"></div>
+                                    <div class="eval-zero"></div>
+                                </div>
+                                <div class="eval-score" id="eval-score">0.0</div>
+                            </div>
+                            <div class="engine-lines" id="engine-lines">
+                                <div class="engine-line">
+                                    <span class="depth">--</span>
+                                    <span class="score">--</span>
+                                    <span class="pv">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-cog"></i> Settings</h2>
+                    <button class="close-modal">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h4>Appearance</h4>
+                        <div class="setting-item">
+                            <label>Board Theme</label>
+                            <div class="theme-options">
+                                <button class="theme-btn active" data-theme="classic">
+                                    <div class="theme-preview classic"></div>
+                                    <span>Classic</span>
+                                </button>
+                                <button class="theme-btn" data-theme="wood">
+                                    <div class="theme-preview wood"></div>
+                                    <span>Wood</span>
+                                </button>
+                                <button class="theme-btn" data-theme="dark">
+                                    <div class="theme-preview dark"></div>
+                                    <span>Midnight</span>
+                                </button>
+                                <button class="theme-btn" data-theme="neon">
+                                    <div class="theme-preview neon"></div>
+                                    <span>Neon</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label>Piece Set</label>
+                            <select id="piece-set" class="form-select">
+                                <option value="cburnett">Standard (CBurnett)</option>
+                                <option value="merida">Merida</option>
+                                <option value="alpha">Alpha</option>
+                                <option value="chessnut">Chessnut</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h4>Engine</h4>
+                        <div class="setting-item">
+                            <div class="setting-label-row">
+                                <label>Search Depth</label>
+                                <span class="setting-value" id="depth-val">4</span>
+                            </div>
+                            <input type="range" id="engine-depth" min="1" max="20" value="4" class="range-slider">
+                            <div class="range-labels">
+                                <span>Beginner</span>
+                                <span>Intermediate</span>
+                                <span>Master</span>
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="show-hints" checked>
+                                <span class="checkmark"></span>
+                                Show Legal Moves
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="sound-enabled" checked>
+                                <span class="checkmark"></span>
+                                Enable Sounds
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="reset-settings">Reset Defaults</button>
+                    <button class="btn btn-primary" id="save-settings">Save Changes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Over Modal -->
+        <div id="game-over-modal" class="modal">
+            <div class="modal-content modal-sm">
+                <div class="modal-body text-center">
+                    <div class="game-result-icon" id="result-icon">
+                        <i class="fas fa-trophy"></i>
+                    </div>
+                    <h2 id="result-title">White Wins!</h2>
+                    <p id="result-message">Checkmate</p>
+                    <button id="play-again-btn" class="btn btn-primary btn-lg">
+                        <i class="fas fa-redo"></i> Play Again
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
