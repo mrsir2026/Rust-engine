@@ -509,6 +509,9 @@ body {
 
 .square.last-move { background-color: var(--last-move) !important; }
 .square.selected { background-color: var(--selected-sq) !important; }
+.square.in-check { 
+    background: radial-gradient(circle, rgba(255, 0, 0, 0.6) 0%, rgba(255, 0, 0, 0) 70%) !important;
+}
 
 .square.legal-move::after {
     content: '';
@@ -899,35 +902,24 @@ body {
 .engine-lines {
     font-family: 'SF Mono', monospace;
     font-size: 13px;
+    background-color: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 12px;
 }
 
 .engine-line {
     display: flex;
-    gap: 12px;
-    padding: 6px 0;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.engine-pv {
     color: var(--text-secondary);
-    border-bottom: 1px solid var(--border-light);
-}
-
-.engine-line:last-child {
-    border-bottom: none;
-}
-
-.engine-line .depth {
-    color: var(--accent-primary);
-    min-width: 30px;
-}
-
-.engine-line .score {
-    min-width: 50px;
-    color: var(--text-primary);
-}
-
-.engine-line .pv {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 12px;
+    word-break: break-all;
+    line-height: 1.4;
 }
 
 /* ===== Modal ===== */

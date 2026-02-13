@@ -28,10 +28,23 @@ let isGameActive = false;
 // Engine
 let engineStatus = 'disconnected';
 let engineEvaluation = 0;
+let engineDepth_current = 0;
+let engineNps = 0;
+let enginePv = '';
 
 // Edit Mode State
 let isEditMode = false;
 let palletDraggedPiece = null;
+
+// Audio Files (Optional placeholders or synthesize)
+const sounds = {
+    move: null,
+    capture: null,
+    check: null,
+    castle: null,
+    promote: null,
+    gameEnd: null
+};
 
 // ===== Piece Images =====
 const pieceImages = {
@@ -61,7 +74,21 @@ function init() {
     renderBoard();
     setupEventListeners();
     updateCapturedPieces();
-    socket.emit('start-engine');
+    
+    socket.on('connect', () => {
+        updateEngineStatus('active', 'Engine Ready');
+        socket.emit('start-engine');
+    });
+
+    socket.on('disconnect', () => {
+        updateEngineStatus('disconnected', 'Engine Disconnected');
+    });
+
+    socket.on('error', (err) => {
+        console.error('Socket Error:', err);
+        updateEngineStatus('error', 'Connection Error');
+    });
+
     loadSettings();
 }
 
@@ -116,8 +143,27 @@ function renderBoard() {
     });
 
     highlightLastMove();
+    highlightCheck();
     updateStatus();
     updateActivePlayer();
+}
+
+function highlightCheck() {
+    if (game.isCheck()) {
+        const turn = game.turn();
+        // Find king square
+        const board = game.board();
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = board[r][c];
+                if (p && p.type === 'k' && p.color === turn) {
+                    const sqName = String.fromCharCode(97 + c) + (8 - r);
+                    const sqEl = document.querySelector(`.square[data-square="${sqName}"]`);
+                    if (sqEl) sqEl.classList.add('in-check');
+                }
+            }
+        }
+    }
 }
 
 // ===== Drag & Drop Handlers =====
@@ -381,15 +427,48 @@ function updateMoveHistory() {
 }
 
 function updateCapturedPieces() {
-    // This would track captured pieces by comparing initial board state
-    // Simplified implementation - you'd need to track captures during gameplay
     const capturedByWhite = document.getElementById('captured-by-white');
     const capturedByBlack = document.getElementById('captured-by-black');
     
-    // Placeholder - implement actual capture tracking
-    if (capturedByWhite) {
-        capturedByWhite.innerHTML = '';
+    if (!capturedByWhite) return;
+
+    const initialPieces = {
+        w: { p: 8, n: 2, b: 2, r: 2, q: 1 },
+        b: { p: 8, n: 2, b: 2, r: 2, q: 1 }
+    };
+    
+    const currentPieces = {
+        w: { p: 0, n: 0, b: 0, r: 0, q: 0 },
+        b: { p: 0, n: 0, b: 0, r: 0, q: 0 }
+    };
+    
+    game.board().flat().filter(p => p).forEach(p => {
+        if (p.type !== 'k') {
+            currentPieces[p.color][p.type]++;
+        }
+    });
+    
+    renderCaptured(capturedByWhite, initialPieces.b, currentPieces.b, 'b');
+    // We don't have a captured-by-black element in HTML yet, let's assume it might be there or added later
+    if (capturedByBlack) {
+        renderCaptured(capturedByBlack, initialPieces.w, currentPieces.w, 'w');
     }
+}
+
+function renderCaptured(container, initial, current, color) {
+    container.innerHTML = '';
+    const order = ['p', 'n', 'b', 'r', 'q'];
+    const setUrl = pieceSets[pieceSet] || pieceSets['cburnett'];
+    
+    order.forEach(type => {
+        const count = initial[type] - current[type];
+        for (let i = 0; i < count; i++) {
+            const img = document.createElement('img');
+            img.src = `${setUrl}${pieceImages[color][type]}.png`;
+            img.classList.add('captured-piece');
+            container.appendChild(img);
+        }
+    });
 }
 
 function updateEngineStatus(status, text) {
@@ -403,28 +482,61 @@ function updateEngineStatus(status, text) {
     engineStatus = status;
 }
 
-function updateEvaluation(score) {
+function updateEvaluation(score, depth, nps, pv) {
+    if (score === null || score === undefined) return;
+    
     engineEvaluation = score;
-    evalScoreElement.textContent = score > 0 ? `+${score}` : score;
+    engineDepth_current = depth || engineDepth_current;
+    engineNps = nps || engineNps;
+    enginePv = pv || enginePv;
+
+    const scoreText = typeof score === 'string' && score.startsWith('#') 
+        ? score 
+        : (score > 0 ? `+${score.toFixed(1)}` : score.toFixed(1));
+    
+    evalScoreElement.textContent = scoreText;
     
     // Update eval bar
-    const maxScore = 10;
-    const normalizedScore = Math.max(-maxScore, Math.min(maxScore, score));
-    const percentage = 50 + (normalizedScore / maxScore) * 50;
+    const maxScore = 5;
+    let percentage;
+    
+    if (typeof score === 'string' && score.startsWith('#')) {
+        percentage = score.includes('-') ? 0 : 100;
+    } else {
+        const normalizedScore = Math.max(-maxScore, Math.min(maxScore, score));
+        percentage = 50 + (normalizedScore / maxScore) * 50;
+    }
+    
     evalFillElement.style.height = `${percentage}%`;
+    
+    // Update engine lines display
+    if (depth && pv) {
+        engineLinesElement.innerHTML = `
+            <div class="engine-line">
+                <span class="depth">d${depth}</span>
+                <span class="score">${scoreText}</span>
+                <span class="nps">${Math.round(nps/1000)}k nps</span>
+            </div>
+            <div class="engine-pv">${pv}</div>
+        `;
+    }
 }
 
 // ===== Game Control =====
 function startNewGame() {
+    socket.emit('engine-command', 'stop');
     game.reset();
     moveHistory = [];
     currentMoveIndex = -1;
     selectedSquare = null;
     
-    const side = document.querySelector('input[name="side"]:checked').value;
+    const sideEl = document.querySelector('input[name="side"]:checked');
+    const side = sideEl ? sideEl.value : 'white';
     playerColor = side === 'white' ? 'w' : 'b';
     isBoardFlipped = side === 'black';
-    opponentType = document.querySelector('input[name="opponent"]:checked').value;
+    
+    const oppEl = document.querySelector('input[name="opponent"]:checked');
+    opponentType = oppEl ? oppEl.value : 'engine';
     
     // Reset timers
     const timeControl = document.getElementById('time-control').value;
@@ -435,11 +547,12 @@ function startNewGame() {
     }
     
     isGameActive = true;
+    updateEvaluation(0, 0, 0, '');
     renderBoard();
     updateMoveHistory();
     updateCapturedPieces();
     
-    if (playerColor === 'b') {
+    if (playerColor === 'b' && opponentType === 'engine') {
         checkEngineMove();
     }
     
@@ -559,7 +672,9 @@ socket.on('engine-response', (data) => {
         // it might now be player's turn. Ignore the engine's move.
         if (opponentType === 'engine' && game.turn() === playerColor[0]) return;
 
-        const moveStr = data.split(' ')[1];
+        const parts = data.split(' ');
+        const moveStr = parts[1];
+        
         if (moveStr && moveStr !== '0000' && moveStr !== '(none)') {
             const from = moveStr.substring(0, 2);
             const to = moveStr.substring(2, 4);
@@ -569,7 +684,6 @@ socket.on('engine-response', (data) => {
             if (promo) {
                 moveOptions.promotion = promo;
             } else {
-                // Only add 'q' as fallback if it's actually a promotion rank for a pawn
                 const piece = game.get(from);
                 if (piece && piece.type === 'p' && (to[1] === '8' || to[1] === '1')) {
                     moveOptions.promotion = 'q';
@@ -582,7 +696,12 @@ socket.on('engine-response', (data) => {
                     saveMove(move);
                     renderBoard();
                     updateCapturedPieces();
-                    playSound('move');
+                    
+                    if (move.captured) {
+                        playSound('capture');
+                    } else {
+                        playSound('move');
+                    }
                     
                     if (game.isGameOver()) {
                         handleGameOver();
@@ -594,12 +713,32 @@ socket.on('engine-response', (data) => {
             }
         }
     } else if (data.startsWith('info')) {
-        // Parse engine info for evaluation
-        const scoreMatch = data.match(/score cp (-?\d+)/);
-        if (scoreMatch) {
-            const score = parseInt(scoreMatch[1]) / 100;
-            updateEvaluation(score);
+        // Parse engine info for evaluation and depth
+        const scoreCpMatch = data.match(/score cp (-?\d+)/);
+        const scoreMateMatch = data.match(/score mate (-?\d+)/);
+        const depthMatch = data.match(/depth (\d+)/);
+        const npsMatch = data.match(/nps (\d+)/);
+        const pvMatch = data.match(/pv (.+)/);
+        
+        let score = engineEvaluation;
+        if (scoreCpMatch) {
+            score = parseInt(scoreCpMatch[1]) / 100;
+            // Flip score if it's black's turn to keep it from white's perspective for the eval bar
+            if (game.turn() === 'b') score = -score;
+        } else if (scoreMateMatch) {
+            const mateIn = parseInt(scoreMateMatch[1]);
+            score = `#${mateIn}`;
+            if (game.turn() === 'b' && typeof score === 'string') {
+                // If it's black's turn, mate +1 means black mates white
+                // But we want to show it from white's perspective
+            }
         }
+        
+        const depth = depthMatch ? parseInt(depthMatch[1]) : 0;
+        const nps = npsMatch ? parseInt(npsMatch[1]) : 0;
+        const pv = pvMatch ? pvMatch[1] : '';
+        
+        updateEvaluation(score, depth, nps, pv);
     } else if (data === 'readyok') {
         updateEngineStatus('active', 'Engine Ready');
     }
@@ -801,15 +940,35 @@ function setupEventListeners() {
     });
 
     loadFenBtn.addEventListener('click', () => {
-        const fen = fenInput.value.trim();
-        if (game.load(fen)) {
-            currentMoveIndex = -1;
-            moveHistory = [{ move: { san: 'Position Load' }, fen: fen }];
+        let fen = fenInput.value.trim();
+        // Remove surrounding quotes if present
+        if (fen.startsWith('"') && fen.endsWith('"')) {
+            fen = fen.substring(1, fen.length - 1).trim();
+        }
+        
+        try {
+            // In chess.js 1.x, load() throws on error and returns void/object on success
+            game.load(fen);
+            
+            // Reset move history to start from this position
+            moveHistory = [{ 
+                move: { san: 'Position Load', from: '', to: '' }, 
+                fen: game.fen() 
+            }];
             currentMoveIndex = 0;
+            isGameActive = true;
+            
             renderBoard();
             updateMoveHistory();
+            updateCapturedPieces();
+            
+            // If it's engine's turn in the loaded position, make it move
+            checkEngineMove();
+            
             fenInput.value = '';
-        } else {
+            console.log("FEN loaded successfully:", fen);
+        } catch (e) {
+            console.error("Failed to load FEN:", e);
             fenInput.classList.add('error');
             setTimeout(() => fenInput.classList.remove('error'), 500);
         }

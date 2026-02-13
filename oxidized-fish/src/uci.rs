@@ -1,6 +1,6 @@
 use crate::board::Board;
 use crate::search::Search;
-use crate::types::Move;
+use crate::types::{Move, CONTEMPT, THREADS};
 use std::io::{self, BufRead};
 use std::time::Duration;
 
@@ -9,9 +9,11 @@ pub fn start_uci() {
     let mut searcher = Search::new();
     let mut board = Board::new();
 
-    println!("id name Oxidized Fish 0.4-Improved");
+    println!("id name Oxidized Fish 0.7-Hardened");
     println!("id author Gemini");
-    println!("option name Hash type spin default 32 min 1 max 1024");
+    println!("option name Hash type spin default 128 min 1 max 2048");
+    println!("option name Threads type spin default 1 min 1 max 64");
+    println!("option name Contempt type spin default 0 min -100 max 100");
     println!("uciok");
 
     for line in stdin.lock().lines() {
@@ -24,9 +26,11 @@ pub fn start_uci() {
 
         match args[0] {
             "uci" => {
-                println!("id name Oxidized Fish 0.4-Improved");
+                println!("id name Oxidized Fish 0.7-Hardened");
                 println!("id author Gemini");
-                println!("option name Hash type spin default 32 min 1 max 1024");
+                println!("option name Hash type spin default 128 min 1 max 2048");
+                println!("option name Threads type spin default 1 min 1 max 64");
+                println!("option name Contempt type spin default 0 min -100 max 100");
                 println!("uciok");
             }
             "isready" => println!("readyok"),
@@ -35,14 +39,30 @@ pub fn start_uci() {
                 searcher.clear_tt();
             }
             "setoption" => {
-                if args.len() >= 5 && args[2] == "Hash" {
-                    if let Ok(size) = args[4].parse::<usize>() {
-                        searcher.resize_tt(size);
+                if args.len() >= 5 {
+                    match args[2] {
+                        "Hash" => {
+                            if let Ok(size) = args[4].parse::<usize>() {
+                                searcher.resize_tt(size);
+                            }
+                        }
+                        "Threads" => {
+                            if let Ok(threads) = args[4].parse::<usize>() {
+                                THREADS.store(threads, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        "Contempt" => {
+                            if let Ok(contempt) = args[4].parse::<i32>() {
+                                CONTEMPT.store(contempt, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
             "position" => {
                 let mut moves_start = 0;
+                searcher.game_history_count = 0;
                 if args.len() > 1 && args[1] == "startpos" {
                     board = Board::new();
                     moves_start = 2;
@@ -57,10 +77,17 @@ pub fn start_uci() {
                     moves_start = i;
                 }
 
+                searcher.game_history[searcher.game_history_count] = board.hash;
+                searcher.game_history_count += 1;
+
                 if moves_start < args.len() && args[moves_start] == "moves" {
                     for m_str in &args[moves_start + 1..] {
                         if let Some(mv) = parse_move(&board, m_str) {
                             board = board.make_move(mv);
+                            searcher.game_history[searcher.game_history_count] = board.hash;
+                            searcher.game_history_count += 1;
+                        } else {
+                            eprintln!("Error: Failed to parse move {}", m_str);
                         }
                     }
                 }

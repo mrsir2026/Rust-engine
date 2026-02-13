@@ -12,13 +12,12 @@ pub struct Board {
     pub halfmove_clock: u8,
     pub fullmove_number: u16,
     pub hash: u64,
+    pub pins: u64, // Pins for the side to move
 }
 
 impl Board {
     pub fn new() -> Self {
-        Board::from_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        )
+        Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     }
 
     pub fn from_fen(fen: &str) -> Self {
@@ -32,10 +31,12 @@ impl Board {
             halfmove_clock: 0,
             fullmove_number: 1,
             hash: 0,
+            pins: 0,
         };
 
         if parts.is_empty() {
             board.hash = board.calculate_hash();
+            board.pins = board.calculate_pins();
             return board;
         }
 
@@ -99,7 +100,16 @@ impl Board {
             }
         }
 
+        if parts.len() > 4 {
+            board.halfmove_clock = parts[4].parse().unwrap_or(0);
+        }
+
+        if parts.len() > 5 {
+            board.fullmove_number = parts[5].parse().unwrap_or(1);
+        }
+
         board.hash = board.calculate_hash();
+        board.pins = board.calculate_pins();
         board
     }
 
@@ -123,6 +133,63 @@ impl Board {
             h ^= ZOBRIST.ep[sq as usize];
         }
         h
+    }
+
+    pub fn calculate_pins(&self) -> u64 {
+        let mut pins = 0u64;
+        let us = self.side_to_move;
+        let them = us.opponent();
+        let occ = self.occupied();
+
+        let king_bit = self.by_type[PieceType::King as usize] & self.by_color[us as usize];
+        if king_bit == 0 {
+            return 0;
+        }
+        let king_sq = king_bit.trailing_zeros() as u8;
+
+        let rooks = (self.by_type[PieceType::Rook as usize]
+            | self.by_type[PieceType::Queen as usize])
+            & self.by_color[them as usize];
+        let mut bb = rooks;
+        while bb != 0 {
+            let sq = bb.trailing_zeros() as u8;
+            let line = rook_line(king_sq, sq);
+            if line != 0 {
+                let pieces_on_line = line & occ;
+                if pieces_on_line.count_ones() == 3 {
+                    let us_pieces = pieces_on_line & self.by_color[us as usize];
+                    if us_pieces.count_ones() == 2 {
+                        pins |= us_pieces ^ (1u64 << king_sq);
+                    }
+                }
+            }
+            bb &= bb - 1;
+        }
+
+        let bishops = (self.by_type[PieceType::Bishop as usize]
+            | self.by_type[PieceType::Queen as usize])
+            & self.by_color[them as usize];
+        bb = bishops;
+        while bb != 0 {
+            let sq = bb.trailing_zeros() as u8;
+            let line = bishop_line(king_sq, sq);
+            if line != 0 {
+                let pieces_on_line = line & occ;
+                if pieces_on_line.count_ones() == 3 {
+                    let us_pieces = pieces_on_line & self.by_color[us as usize];
+                    if us_pieces.count_ones() == 2 {
+                        pins |= us_pieces ^ (1u64 << king_sq);
+                    }
+                }
+            }
+            bb &= bb - 1;
+        }
+
+        pins
+    }
+
+    pub fn get_knight_attacks(&self, sq: u8) -> u64 {
+        crate::tables::ATTACKS.knight[sq as usize]
     }
 
     pub fn occupied(&self) -> u64 {
@@ -179,7 +246,6 @@ impl Board {
 
         if m.is_capture() {
             if flags == Move::EP_CAPTURE {
-                // EP
                 let cap_sq = if us == Color::White { to - 8 } else { to + 8 };
                 next.by_color[them as usize] &= !(1u64 << cap_sq);
                 next.by_type[PieceType::Pawn as usize] &= !(1u64 << cap_sq);
@@ -191,6 +257,11 @@ impl Board {
                 next.by_type[cap_piece as usize] &= !(1u64 << to);
                 next.hash ^= ZOBRIST.pieces[them as usize][cap_piece as usize][to as usize];
             }
+            next.halfmove_clock = 0;
+        } else if piece == PieceType::Pawn {
+            next.halfmove_clock = 0;
+        } else {
+            next.halfmove_clock += 1;
         }
 
         let mut placed_piece = piece;
@@ -210,7 +281,6 @@ impl Board {
 
         if piece == PieceType::King {
             if flags == Move::K_CASTLE {
-                // K-side
                 let (r_from, r_to) = if us == Color::White { (7, 5) } else { (63, 61) };
                 next.by_color[us as usize] &= !(1u64 << r_from);
                 next.by_type[PieceType::Rook as usize] &= !(1u64 << r_from);
@@ -219,7 +289,6 @@ impl Board {
                 next.hash ^= ZOBRIST.pieces[us as usize][PieceType::Rook as usize][r_from as usize];
                 next.hash ^= ZOBRIST.pieces[us as usize][PieceType::Rook as usize][r_to as usize];
             } else if flags == Move::Q_CASTLE {
-                // Q-side
                 let (r_from, r_to) = if us == Color::White { (0, 3) } else { (56, 59) };
                 next.by_color[us as usize] &= !(1u64 << r_from);
                 next.by_type[PieceType::Rook as usize] &= !(1u64 << r_from);
@@ -269,7 +338,10 @@ impl Board {
 
         next.side_to_move = them;
         next.hash ^= ZOBRIST.side;
-        next.fullmove_number += 1;
+        if us == Color::Black {
+            next.fullmove_number += 1;
+        }
+        next.pins = next.calculate_pins();
 
         next
     }
@@ -277,37 +349,36 @@ impl Board {
     pub fn is_square_attacked(&self, sq: u8, attacker: Color) -> bool {
         let us = attacker;
         let occ = self.occupied();
-
-        // Pawns
         let pawn_attacks = crate::tables::ATTACKS.pawn[us.opponent() as usize][sq as usize];
-        if (pawn_attacks & self.by_type[PieceType::Pawn as usize] & self.by_color[us as usize]) != 0 {
+        if (pawn_attacks & self.by_type[PieceType::Pawn as usize] & self.by_color[us as usize]) != 0
+        {
             return true;
         }
-
-        // Knights
         let knight_attacks = crate::tables::ATTACKS.knight[sq as usize];
-        if (knight_attacks & self.by_type[PieceType::Knight as usize] & self.by_color[us as usize]) != 0 {
+        if (knight_attacks & self.by_type[PieceType::Knight as usize] & self.by_color[us as usize])
+            != 0
+        {
             return true;
         }
-
-        // King
         let king_attacks = crate::tables::ATTACKS.king[sq as usize];
-        if (king_attacks & self.by_type[PieceType::King as usize] & self.by_color[us as usize]) != 0 {
+        if (king_attacks & self.by_type[PieceType::King as usize] & self.by_color[us as usize]) != 0
+        {
             return true;
         }
-
-        // Sliders (Rook/Queen)
-        let rook_attacks = self.get_rook_attacks(sq, occ);
-        if (rook_attacks & (self.by_type[PieceType::Rook as usize] | self.by_type[PieceType::Queen as usize]) & self.by_color[us as usize]) != 0 {
+        if (self.get_rook_attacks(sq, occ)
+            & (self.by_type[PieceType::Rook as usize] | self.by_type[PieceType::Queen as usize])
+            & self.by_color[us as usize])
+            != 0
+        {
             return true;
         }
-
-        // Sliders (Bishop/Queen)
-        let bishop_attacks = self.get_bishop_attacks(sq, occ);
-        if (bishop_attacks & (self.by_type[PieceType::Bishop as usize] | self.by_type[PieceType::Queen as usize]) & self.by_color[us as usize]) != 0 {
+        if (self.get_bishop_attacks(sq, occ)
+            & (self.by_type[PieceType::Bishop as usize] | self.by_type[PieceType::Queen as usize])
+            & self.by_color[us as usize])
+            != 0
+        {
             return true;
         }
-
         false
     }
 
@@ -321,21 +392,20 @@ impl Board {
 
     pub fn get_attackers(&self, sq: u8, occ: u64) -> u64 {
         let mut attackers = 0u64;
-        
-        // Pawns
-        attackers |= crate::tables::ATTACKS.pawn[Color::White as usize][sq as usize] & self.by_type[PieceType::Pawn as usize] & self.by_color[Color::Black as usize];
-        attackers |= crate::tables::ATTACKS.pawn[Color::Black as usize][sq as usize] & self.by_type[PieceType::Pawn as usize] & self.by_color[Color::White as usize];
-        
-        // Knights
-        attackers |= crate::tables::ATTACKS.knight[sq as usize] & self.by_type[PieceType::Knight as usize];
-        
-        // King
-        attackers |= crate::tables::ATTACKS.king[sq as usize] & self.by_type[PieceType::King as usize];
-        
-        // Sliders
-        attackers |= self.get_rook_attacks(sq, occ) & (self.by_type[PieceType::Rook as usize] | self.by_type[PieceType::Queen as usize]);
-        attackers |= self.get_bishop_attacks(sq, occ) & (self.by_type[PieceType::Bishop as usize] | self.by_type[PieceType::Queen as usize]);
-        
+        attackers |= crate::tables::ATTACKS.pawn[Color::White as usize][sq as usize]
+            & self.by_type[PieceType::Pawn as usize]
+            & self.by_color[Color::Black as usize];
+        attackers |= crate::tables::ATTACKS.pawn[Color::Black as usize][sq as usize]
+            & self.by_type[PieceType::Pawn as usize]
+            & self.by_color[Color::White as usize];
+        attackers |=
+            crate::tables::ATTACKS.knight[sq as usize] & self.by_type[PieceType::Knight as usize];
+        attackers |=
+            crate::tables::ATTACKS.king[sq as usize] & self.by_type[PieceType::King as usize];
+        attackers |= self.get_rook_attacks(sq, occ)
+            & (self.by_type[PieceType::Rook as usize] | self.by_type[PieceType::Queen as usize]);
+        attackers |= self.get_bishop_attacks(sq, occ)
+            & (self.by_type[PieceType::Bishop as usize] | self.by_type[PieceType::Queen as usize]);
         attackers
     }
 
@@ -343,31 +413,28 @@ impl Board {
         let values = [100, 320, 330, 500, 900, 20000];
         let from = m.from();
         let to = m.to();
-        
         let (mut piece, _) = self.get_piece_at(from).unwrap();
-        let victim = self.get_piece_at(to).map(|(p, _)| p).unwrap_or(if m.flags() == Move::EP_CAPTURE { PieceType::Pawn } else { PieceType::Pawn });
-        
+        let victim = self
+            .get_piece_at(to)
+            .map(|(p, _)| p)
+            .unwrap_or(PieceType::Pawn);
         let mut score = values[victim as usize];
         if m.is_promotion() {
             let promo = m.promoted_piece().unwrap();
             score += values[promo as usize] - values[PieceType::Pawn as usize];
             piece = promo;
         }
-
         let mut occ = self.occupied();
         let mut attackers = self.get_attackers(to, occ);
-        
         occ &= !(1u64 << from);
         attackers &= occ;
-
         let mut us = self.side_to_move.opponent();
         let mut res = vec![score];
-        
         loop {
             let my_attackers = attackers & self.by_color[us as usize];
-            if my_attackers == 0 { break; }
-            
-            // Find cheapest attacker
+            if my_attackers == 0 {
+                break;
+            }
             let mut best_pt = PieceType::King;
             let mut attacker_sq = 64;
             for pt in PieceType::ALL {
@@ -378,24 +445,26 @@ impl Board {
                     break;
                 }
             }
-            
             score = values[piece as usize] - score;
             res.push(score);
             piece = best_pt;
-            
             occ &= !(1u64 << attacker_sq);
-            // Update X-rays
-            if best_pt == PieceType::Pawn || best_pt == PieceType::Bishop || best_pt == PieceType::Queen {
-                attackers |= self.get_bishop_attacks(to, occ) & (self.by_type[PieceType::Bishop as usize] | self.by_type[PieceType::Queen as usize]);
+            if best_pt == PieceType::Pawn
+                || best_pt == PieceType::Bishop
+                || best_pt == PieceType::Queen
+            {
+                attackers |= self.get_bishop_attacks(to, occ)
+                    & (self.by_type[PieceType::Bishop as usize]
+                        | self.by_type[PieceType::Queen as usize]);
             }
             if best_pt == PieceType::Rook || best_pt == PieceType::Queen {
-                attackers |= self.get_rook_attacks(to, occ) & (self.by_type[PieceType::Rook as usize] | self.by_type[PieceType::Queen as usize]);
+                attackers |= self.get_rook_attacks(to, occ)
+                    & (self.by_type[PieceType::Rook as usize]
+                        | self.by_type[PieceType::Queen as usize]);
             }
-            
             attackers &= occ;
             us = us.opponent();
         }
-
         let mut val = 0;
         for s in res.into_iter().rev() {
             val = (s - val).max(0);
@@ -404,20 +473,67 @@ impl Board {
     }
 
     pub fn is_in_check(&self) -> bool {
-        let king_sq = (self.by_type[PieceType::King as usize]
-            & self.by_color[self.side_to_move as usize])
-            .trailing_zeros() as u8;
-        if king_sq == 64 {
+        let king_bit =
+            self.by_type[PieceType::King as usize] & self.by_color[self.side_to_move as usize];
+        if king_bit == 0 {
             return true;
         }
-        self.is_square_attacked(king_sq, self.side_to_move.opponent())
+        self.is_square_attacked(
+            king_bit.trailing_zeros() as u8,
+            self.side_to_move.opponent(),
+        )
     }
 
     pub fn is_legal(&self, m: Move) -> bool {
         let next_board = self.make_move(m);
         let us = self.side_to_move;
-        let king_sq = (next_board.by_type[PieceType::King as usize] & next_board.by_color[us as usize]).trailing_zeros() as u8;
-        if king_sq == 64 { return false; }
-        !next_board.is_square_attacked(king_sq, us.opponent())
+        let king_bit =
+            next_board.by_type[PieceType::King as usize] & next_board.by_color[us as usize];
+        if king_bit == 0 {
+            return false;
+        }
+        !next_board.is_square_attacked(king_bit.trailing_zeros() as u8, us.opponent())
+    }
+}
+
+fn rook_line(sq1: u8, sq2: u8) -> u64 {
+    let f1 = sq1 % 8;
+    let r1 = sq1 / 8;
+    let f2 = sq2 % 8;
+    let r2 = sq2 / 8;
+    if f1 == f2 {
+        let mut mask = 0u64;
+        for r in r1.min(r2)..=r1.max(r2) {
+            mask |= 1u64 << (r * 8 + f1);
+        }
+        mask
+    } else if r1 == r2 {
+        let mut mask = 0u64;
+        for f in f1.min(f2)..=f1.max(f2) {
+            mask |= 1u64 << (r1 * 8 + f);
+        }
+        mask
+    } else {
+        0
+    }
+}
+
+fn bishop_line(sq1: u8, sq2: u8) -> u64 {
+    let f1 = (sq1 % 8) as i16;
+    let r1 = (sq1 / 8) as i16;
+    let f2 = (sq2 % 8) as i16;
+    let r2 = (sq2 / 8) as i16;
+    let df = (f2 - f1).abs();
+    let dr = (r2 - r1).abs();
+    if df == dr && df > 0 {
+        let mut mask = 0u64;
+        let step_f = (f2 - f1).signum();
+        let step_r = (r2 - r1).signum();
+        for i in 0..=df {
+            mask |= 1u64 << ((r1 + i * step_r) * 8 + (f1 + i * step_f));
+        }
+        mask
+    } else {
+        0
     }
 }

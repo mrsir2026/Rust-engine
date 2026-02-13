@@ -1,6 +1,9 @@
 pub const INFINITY: i32 = 30000;
 pub const MATE_VALUE: i32 = 29000;
 
+pub static CONTEMPT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+pub static THREADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     White = 0,
